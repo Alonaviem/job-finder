@@ -318,7 +318,7 @@
 </div>
 
 <script>
-const API = 'http://localhost:8000';
+const API = window.location.hostname === 'localhost' ? 'http://localhost:8000' : '';
 let map, markers, currentJobs = [], currentView = 'map';
 
 // ── MAP INIT ──────────────────────────────────────────────────────────────
