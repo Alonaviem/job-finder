@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Israel Jobs Finder | מציאת עבודה בישראל</title>
+  <meta name="description" content="מצא משרות פתוחות בישראל לפי תפקיד, אזור, שכר וניסיון — על מפה אינטראקטיבית" />
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet cluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080c14;
+      --surface:   #0e1520;
+      --surface2:  #141d2e;
+      --border:    #1e2d45;
+      --accent:    #3b82f6;
+      --accent2:   #6366f1;
+      --text:      #e2e8f0;
+      --text-muted:#6b7fa3;
+      --green:     #10b981;
+      --yellow:    #f59e0b;
+      --red:       #ef4444;
+      --radius:    12px;
+    }
+
+    html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── TOP BAR ── */
+    header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+      background: rgba(8,12,20,0.9);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    .brand {
+      font-size: 1.25rem; font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      white-space: nowrap;
+    }
+    .search-wrap {
+      flex: 1; min-width: 220px; position: relative;
+    }
+    .search-wrap input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 10px 20px 10px 44px;
+      color: var(--text); font-size: 0.95rem;
+      outline: none; transition: border-color .2s;
+    }
+    .search-wrap input:focus { border-color: var(--accent); }
+    .search-icon {
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      color: var(--text-muted); font-size: 1rem; pointer-events: none;
+    }
+    .search-btn {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none; border-radius: 999px;
+      padding: 10px 22px; color: #fff; font-weight: 600;
+      cursor: pointer; transition: opacity .2s; white-space: nowrap;
+    }
+    .search-btn:hover { opacity: .85; }
+    .view-toggle {
+      display: flex; gap: 6px;
+    }
+    .view-btn {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 14px; color: var(--text-muted);
+      cursor: pointer; font-size: 0.85rem; transition: all .2s;
+    }
+    .view-btn.active {
+      background: var(--accent); border-color: var(--accent); color: #fff;
+    }
+
+    /* ── FILTERS BAR ── */
+    .filters {
+      position: fixed; top: 69px; left: 0; right: 0; z-index: 999;
+      background: rgba(14,21,32,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 24px;
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    }
+    .filter-label { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
+    select {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 7px 12px; color: var(--text);
+      font-size: 0.83rem; outline: none; cursor: pointer;
+      transition: border-color .2s;
+    }
+    select:focus { border-color: var(--accent); }
+    .stats-badge {
+      margin-right: auto; font-size: 0.78rem; color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .stats-badge span { color: var(--accent); font-weight: 600; }
+
+    /* ── LAYOUT ── */
+    .main-content {
+      padding-top: 125px; height: 100vh; display: flex;
+    }
+
+    /* ── MAP ── */
+    #map {
+      flex: 1; height: 100%; min-height: 400px;
+      background: var(--bg);
+    }
+    .leaflet-popup-content-wrapper {
+      background: var(--surface2) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: var(--radius) !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,.6) !important;
+      color: var(--text) !important;
+    }
+    .leaflet-popup-tip { background: var(--surface2) !important; }
+    .popup-job { padding: 4px 0; }
+    .popup-title { font-weight: 600; font-size: .9rem; color: var(--text); }
+    .popup-company { font-size: .78rem; color: var(--text-muted); }
+    .popup-link {
+      display: inline-block; margin-top: 6px; font-size: .78rem;
+      color: var(--accent); text-decoration: none;
+      padding: 3px 10px; border: 1px solid var(--accent);
+      border-radius: 6px; transition: background .2s;
+    }
+    .popup-link:hover { background: var(--accent); color: #fff; }
+
+    /* ── LIST PANEL ── */
+    #list-panel {
+      width: 420px; height: 100%; overflow-y: auto;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: none; flex-direction: column; gap: 0;
+    }
+    #list-panel.show { display: flex; }
+
+    /* show list on the right, map on left for RTL layout */
+    .map-and-list {
+      display: flex; flex: 1; flex-direction: row-reverse; overflow: hidden;
+    }
+
+    .job-card {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      transition: background .18s;
+      cursor: pointer;
+      text-decoration: none;
+      display: block;
+      color: inherit;
+    }
+    .job-card:hover { background: var(--surface2); }
+    .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .card-title { font-weight: 600; font-size: .93rem; line-height: 1.35; }
+    .card-company { font-size: .8rem; color: var(--text-muted); margin-top: 2px; }
+    .card-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .tag {
+      font-size: .7rem; padding: 3px 9px; border-radius: 99px;
+      font-weight: 500; white-space: nowrap;
+    }
+    .tag-city    { background: rgba(59,130,246,.18); color: #93c5fd; }
+    .tag-exp     { background: rgba(99,102,241,.18); color: #a5b4fc; }
+    .tag-model   { background: rgba(16,185,129,.18); color: #6ee7b7; }
+    .tag-source  { background: rgba(245,158,11,.15); color: #fcd34d; }
+    .tag-salary  { background: rgba(239,68,68,.15);  color: #fca5a5; }
+    .source-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px;
+    }
+    .dot-alljobs  { background: var(--accent); }
+    .dot-drushim  { background: var(--green); }
+
+    /* ── LOADER / EMPTY ── */
+    .loader-wrap, .empty-wrap {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 100%; gap: 14px; padding: 40px;
+      color: var(--text-muted); text-align: center;
+    }
+    .loader {
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty-icon { font-size: 3rem; }
+    .empty-title { font-weight: 600; color: var(--text); }
+
+    /* ── SCRAPE STATUS ── */
+    #scrape-status {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 99px; padding: 8px 20px;
+      font-size: .8rem; color: var(--text-muted);
+      display: none; align-items: center; gap: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.5);
+      z-index: 2000;
+    }
+    #scrape-status.show { display: flex; }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+
+    /* ── SALARY RANGE ── */
+    .salary-row { display: flex; align-items: center; gap: 8px; }
+    input[type=range] {
+      -webkit-appearance: none; width: 120px; height: 4px;
+      background: var(--border); border-radius: 2px; outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      border-radius: 50%; background: var(--accent); cursor: pointer;
+    }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 9px; }
+  </style>
+</head>
+<body>
+
+<!-- ── TOP BAR ── -->
+<header>
+  <div class="brand">🇮🇱 Israel Jobs</div>
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="search-input" placeholder="חפש תפקיד: Product Manager, Software Engineer, QA Automation..." />
+  </div>
+  <button class="search-btn" onclick="doSearch()">חיפוש</button>
+  <div class="view-toggle">
+    <button class="view-btn active" id="btn-map"  onclick="setView('map')">🗺 מפה</button>
+    <button class="view-btn"        id="btn-list" onclick="setView('list')">📋 רשימה</button>
+    <button class="view-btn"        id="btn-both" onclick="setView('both')">⊞ שניהם</button>
+  </div>
+</header>
+
+<!-- ── FILTERS ── -->
+<div class="filters">
+  <span class="filter-label">סינון:</span>
+
+  <select id="f-city" onchange="doSearch()">
+    <option value="">כל הערים</option>
+    <option value="תל אביב">תל אביב</option>
+    <option value="הרצליה">הרצליה</option>
+    <option value="ירושלים">ירושלים</option>
+    <option value="חיפה">חיפה</option>
+    <option value="רעננה">רעננה</option>
+    <option value="פתח תקווה">פתח תקווה</option>
+    <option value="באר שבע">באר שבע</option>
+    <option value="רמת גן">רמת גן</option>
+    <option value="ראשון לציון">ראשון לציון</option>
+    <option value="נתניה">נתניה</option>
+    <option value="Remote">Remote</option>
+  </select>
+
+  <select id="f-exp" onchange="doSearch()">
+    <option value="">כל הניסיון</option>
+    <option value="junior">Junior (0–2y)</option>
+    <option value="mid">Mid (2–5y)</option>
+    <option value="senior">Senior (5+y)</option>
+  </select>
+
+  <select id="f-model" onchange="doSearch()">
+    <option value="">כל הפורמטים</option>
+    <option value="remote">Remote 🌍</option>
+    <option value="hybrid">Hybrid 🔀</option>
+    <option value="onsite">On-site 🏢</option>
+  </select>
+
+  <select id="f-source" onchange="doSearch()">
+    <option value="">כל המקורות</option>
+    <option value="alljobs">AllJobs</option>
+    <option value="drushim">Drushim</option>
+  </select>
+
+  <select id="f-days" onchange="doSearch()">
+    <option value="">כל הזמן</option>
+    <option value="1">24 שעות אחרונות</option>
+    <option value="7">שבוע אחרון</option>
+    <option value="30">חודש אחרון</option>
+  </select>
+
+  <div class="salary-row">
+    <span class="filter-label">שכר מינ׳:</span>
+    <input type="range" id="f-salary" min="0" max="50000" step="1000" value="0" oninput="updateSalaryLabel(this.value)" onchange="doSearch()" />
+    <span id="salary-label" style="font-size:.78rem;color:var(--accent);min-width:55px">כל שכר</span>
+  </div>
+
+  <span class="stats-badge">נמצאו <span id="job-count">–</span> משרות</span>
+</div>
+
+<!-- ── MAIN ── -->
+<div class="main-content">
+  <div class="map-and-list" id="map-and-list">
+    <div id="map"></div>
+    <div id="list-panel">
+      <div class="loader-wrap" id="list-loader"><div class="loader"></div><span>טוען משרות...</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SCRAPE STATUS ── -->
+<div id="scrape-status">
+  <div class="pulse"></div>
+  <span id="scrape-msg">אוסף נתונים מאתרי גיוס...</span>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+let map, markers, currentJobs = [], currentView = 'map';
+
+// ── MAP INIT ──────────────────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', { center: [31.5, 34.9], zoom: 8, zoomControl: true });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO',
+    maxZoom: 18,
+  }).addTo(map);
+  markers = L.markerClusterGroup({
+    chunkedLoading: true,
+    iconCreateFunction: (cluster) => {
+      const c = cluster.getChildCount();
+      return L.divIcon({
+        html: `<div style="
+          background:linear-gradient(135deg,#3b82f6,#6366f1);
+          color:#fff;width:40px;height:40px;border-radius:50%;
+          display:flex;align-items:center;justify-content:center;
+          font-weight:700;font-size:.85rem;
+          box-shadow:0 0 0 3px rgba(59,130,246,.3)">
+          ${c}
+        </div>`,
+        className: '', iconSize: [40, 40],
+      });
+    }
+  });
+  map.addLayer(markers);
+}
+
+// ── SEARCH ────────────────────────────────────────────────────────────────
+async function doSearch() {
+  const title  = document.getElementById('search-input').value.trim();
+  const city   = document.getElementById('f-city').value;
+  const exp    = document.getElementById('f-exp').value;
+  const model  = document.getElementById('f-model').value;
+  const source = document.getElementById('f-source').value;
+  const days   = document.getElementById('f-days').value;
+  const salMin = document.getElementById('f-salary').value;
+
+  const params = new URLSearchParams();
+  if (title)  params.set('title', title);
+  if (city)   params.set('city', city);
+  if (exp)    params.set('experience', exp);
+  if (model)  params.set('work_model', model);
+  if (source) params.set('source', source);
+  if (days)   params.set('days', days);
+  if (salMin > 0) params.set('salary_min', salMin);
+  params.set('limit', '300');
+
+  showListLoader();
+  try {
+    const res  = await fetch(`${API}/api/jobs?${params}`);
+    const data = await res.json();
+    currentJobs = data.jobs || [];
+    document.getElementById('job-count').textContent = currentJobs.length;
+    renderMap(currentJobs);
+    renderList(currentJobs);
+  } catch (e) {
+    showError(e);
+  }
+}
+
+// ── MAP RENDER ────────────────────────────────────────────────────────────
+function renderMap(jobs) {
+  markers.clearLayers();
+  const withCoords = jobs.filter(j => j.lat && j.lng);
+
+  // Group by city coords
+  const grouped = {};
+  withCoords.forEach(j => {
+    const key = `${j.lat},${j.lng}`;
+    if (!grouped[key]) grouped[key] = { lat: j.lat, lng: j.lng, city: j.city, jobs: [] };
+    grouped[key].jobs.push(j);
+  });
+
+  Object.values(grouped).forEach(({ lat, lng, city, jobs: cityJobs }) => {
+    const icon = L.divIcon({
+      html: `<div style="
+        background:linear-gradient(135deg,#3b82f6,#6366f1);
+        color:#fff;width:32px;height:32px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;
+        font-weight:700;font-size:.75rem;
+        box-shadow:0 0 0 3px rgba(59,130,246,.25),0 2px 8px rgba(0,0,0,.5)">
+        ${cityJobs.length}
+      </div>`,
+      className: '', iconSize: [32, 32],
+    });
+
+    const top5 = cityJobs.slice(0, 5);
+    const popupHtml = `
+      <div style="min-width:200px">
+        <div style="font-size:.75rem;color:#6b7fa3;margin-bottom:8px">📍 ${city} — ${cityJobs.length} משרות</div>
+        ${top5.map(j => `
+          <div class="popup-job" style="border-bottom:1px solid #1e2d45;padding:6px 0">
+            <div class="popup-title">${j.title}</div>
+            <div class="popup-company">${j.company}</div>
+            ${j.url ? `<a class="popup-link" href="${j.url}" target="_blank">פתח משרה →</a>` : ''}
+          </div>`).join('')}
+        ${cityJobs.length > 5 ? `<div style="font-size:.72rem;color:#6b7fa3;margin-top:6px">ועוד ${cityJobs.length - 5} משרות...</div>` : ''}
+      </div>`;
+
+    const m = L.marker([lat, lng], { icon }).bindPopup(popupHtml, { maxWidth: 280 });
+    markers.addLayer(m);
+  });
+}
+
+// ── LIST RENDER ───────────────────────────────────────────────────────────
+function renderList(jobs) {
+  const panel = document.getElementById('list-panel');
+  if (!jobs.length) {
+    panel.innerHTML = `
+      <div class="empty-wrap">
+        <div class="empty-icon">🔎</div>
+        <div class="empty-title">לא נמצאו משרות</div>
+        <div>נסה לשנות את הסינון או לחפש מחדש</div>
+      </div>`;
+    return;
+  }
+
+  panel.innerHTML = jobs.map(j => {
+    const salaryTag = (j.salary_min || j.salary_max)
+      ? `<span class="tag tag-salary">₪${(j.salary_min||0).toLocaleString()}–${(j.salary_max||'?').toLocaleString()}</span>` : '';
+    const expMap   = { junior: 'Junior', mid: 'Mid', senior: 'Senior' };
+    const modelMap = { remote: '🌍 Remote', hybrid: '🔀 Hybrid', onsite: '🏢 On-site' };
+    return `
+      <a class="job-card" href="${j.url || '#'}" target="_blank">
+        <div class="card-top">
+          <div>
+            <div class="card-title">${j.title}</div>
+            <div class="card-company">${j.company}</div>
+          </div>
+          <div class="source-dot dot-${j.source}" title="${j.source}"></div>
+        </div>
+        <div class="card-meta">
+          ${j.city ? `<span class="tag tag-city">📍 ${j.city}</span>` : ''}
+          ${j.experience ? `<span class="tag tag-exp">${expMap[j.experience]||j.experience}</span>` : ''}
+          ${j.work_model ? `<span class="tag tag-model">${modelMap[j.work_model]||j.work_model}</span>` : ''}
+          ${salaryTag}
+          <span class="tag tag-source">${j.source}</span>
+        </div>
+      </a>`;
+  }).join('');
+}
+
+// ── VIEW TOGGLE ───────────────────────────────────────────────────────────
+function setView(v) {
+  currentView = v;
+  const mapEl   = document.getElementById('map');
+  const listEl  = document.getElementById('list-panel');
+  ['map', 'list', 'both'].forEach(x => document.getElementById('btn-' + x).classList.remove('active'));
+  document.getElementById('btn-' + v).classList.add('active');
+
+  if (v === 'map') {
+    mapEl.style.display = 'block'; listEl.classList.remove('show');
+  } else if (v === 'list') {
+    mapEl.style.display = 'none'; listEl.classList.add('show');
+  } else {
+    mapEl.style.display = 'block'; listEl.classList.add('show');
+  }
+  setTimeout(() => map && map.invalidateSize(), 100);
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────
+function showListLoader() {
+  const p = document.getElementById('list-panel');
+  p.innerHTML = `<div class="loader-wrap" id="list-loader"><div class="loader"></div><span>טוען...</span></div>`;
+}
+
+function showError(e) {
+  const p = document.getElementById('list-panel');
+  p.innerHTML = `
+    <div class="empty-wrap">
+      <div class="empty-icon">⚠️</div>
+      <div class="empty-title">שגיאה בחיבור ל-API</div>
+      <div>ודא שהשרת פועל על localhost:8000</div>
+      <div style="font-size:.75rem;margin-top:8px;color:var(--red)">${e}</div>
+    </div>`;
+}
+
+function updateSalaryLabel(val) {
+  document.getElementById('salary-label').textContent =
+    val > 0 ? `₪${Number(val).toLocaleString()}+` : 'כל שכר';
+}
+
+// ── SCRAPE STATUS ─────────────────────────────────────────────────────────
+async function checkStats() {
+  try {
+    const res  = await fetch(`${API}/api/stats`);
+    const data = await res.json();
+    const el   = document.getElementById('scrape-status');
+    const msg  = document.getElementById('scrape-msg');
+    if (data.total === 0) {
+      el.classList.add('show');
+      msg.textContent = 'אוסף משרות לראשונה — יכול לקחת כמה דקות...';
+    } else {
+      el.classList.remove('show');
+      document.getElementById('job-count').textContent = data.total;
+    }
+  } catch (_) {}
+}
+
+// ── KEYBOARD ──────────────────────────────────────────────────────────────
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+// ── BOOT ──────────────────────────────────────────────────────────────────
+initMap();
+setView('both');
+doSearch();
+checkStats();
+setInterval(checkStats, 15000); // poll every 15s while scraper is warming up
+</script>
+</body>
+</html>
