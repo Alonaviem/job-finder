@@ -574,6 +574,14 @@ class GreenhouseScraper:
         ("sisense",     "Sisense"),
         ("firebolt",    "Firebolt"),
         ("sygnia",      "Sygnia"),
+        ("jfrog",       "JFrog"),
+        ("via",         "Via"),
+        ("torq",        "Torq"),
+        ("forter",      "Forter"),
+        ("yotpo",       "Yotpo"),
+        ("lightrun",    "Lightrun"),
+        ("cymulate",    "Cymulate"),
+        ("safebreach",  "SafeBreach"),
     ]
 
     # Exact phrases that confirm an Israeli location
