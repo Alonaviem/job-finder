@@ -210,6 +210,22 @@
     }
     .multiselect-dropdown label:hover { background: var(--surface2); }
     .multiselect-dropdown input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+    .multiselect-controls {
+      display: flex; gap: 6px; padding: 8px 14px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .multiselect-controls button {
+      flex: 1; font-size: .75rem; padding: 4px 0;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text-muted); cursor: pointer;
+    }
+    .multiselect-controls button:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── LAST UPDATED ── */
+    .last-updated {
+      font-size: .72rem; color: var(--text-muted); white-space: nowrap;
+    }
+    .last-updated span { color: var(--text); }
 
     /* ── EXPORT BUTTON ── */
     .export-btn {
@@ -293,6 +309,10 @@
       <span class="multiselect-arrow">▾</span>
     </div>
     <div class="multiselect-dropdown" id="city-dropdown">
+      <div class="multiselect-controls">
+        <button onclick="selectAllCities()">בחר הכל</button>
+        <button onclick="clearAllCities()">נקה הכל</button>
+      </div>
       <label><input type="checkbox" value="תל אביב"     onchange="onCityChange()"> תל אביב</label>
       <label><input type="checkbox" value="הרצליה"      onchange="onCityChange()"> הרצליה</label>
       <label><input type="checkbox" value="רמת גן"      onchange="onCityChange()"> רמת גן</label>
@@ -346,6 +366,7 @@
 
   <button class="export-btn" onclick="exportCSV()">⬇ ייצא CSV</button>
   <span class="stats-badge">נמצאו <span id="job-count">–</span> משרות</span>
+  <span class="last-updated" id="last-updated-badge"></span>
 </div>
 
 <!-- ── MAIN ── -->
@@ -405,7 +426,7 @@ document.addEventListener('click', e => {
   }
 });
 function getSelectedCities() {
-  return [...document.querySelectorAll('#city-dropdown input:checked')].map(i => i.value);
+  return [...document.querySelectorAll('#city-dropdown input[type=checkbox]:checked')].map(i => i.value);
 }
 function onCityChange() {
   const selected = getSelectedCities();
@@ -413,33 +434,62 @@ function onCityChange() {
     selected.length === 0 ? 'כל הערים' : `${selected.length} ערים`;
   doSearch();
 }
+function selectAllCities() {
+  document.querySelectorAll('#city-dropdown input[type=checkbox]').forEach(c => c.checked = true);
+  onCityChange();
+}
+function clearAllCities() {
+  document.querySelectorAll('#city-dropdown input[type=checkbox]').forEach(c => c.checked = false);
+  onCityChange();
+}
 
 // ── EXPORT CSV ────────────────────────────────────────────────────────────
-function exportCSV() {
-  if (!currentJobs.length) return;
-  const expMap = { junior: 'Junior', mid: 'Mid', senior: 'Senior' };
-  const headers = ['Company', 'Category', 'Title', 'Level', 'City', 'Work Model', 'Source', 'URL'];
-  const rows = currentJobs.map(j => [
-    j.company   || '',
-    j.category  || '',
-    j.title     || '',
-    expMap[j.experience] || j.experience || '',
-    j.city      || '',
-    j.work_model|| '',
-    j.source    || '',
-    j.url       || '',
-  ].map(v => `"${String(v).replace(/"/g, '""')}"`));
-  const csv = '﻿' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = `israel-jobs-${new Date().toISOString().slice(0, 10)}.csv`;
-  link.click();
-  URL.revokeObjectURL(link.href);
+async function exportCSV() {
+  const btn = document.querySelector('.export-btn');
+  btn.textContent = '⏳ טוען...';
+  btn.disabled = true;
+  try {
+    // Fetch ALL matching jobs (no display limit) using current filters
+    const params = buildSearchParams();
+    params.set('limit', '5000');
+    const res  = await fetch(`${API}/api/jobs?${params}`);
+    const data = await res.json();
+    const jobs = data.jobs || [];
+
+    const expMap = { junior: 'Junior', mid: 'Mid', senior: 'Senior' };
+    const headers = ['Company', 'Category', 'Title', 'Level', 'City', 'Work Model', 'Source', 'Update Date', 'URL'];
+    const rows = jobs.map(j => {
+      const rawDate = j.scraped_at || j.posted_at || '';
+      const dateStr = rawDate ? new Date(rawDate).toLocaleDateString('he-IL') : 'לא ידוע';
+      return [
+        j.company    || '',
+        j.category   || '',
+        j.title      || '',
+        expMap[j.experience] || j.experience || '',
+        j.city       || '',
+        j.work_model || '',
+        j.source     || '',
+        dateStr,
+        j.url        || '',
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`);
+    });
+    const csv = '﻿' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `israel-jobs-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  } catch(e) {
+    alert('שגיאה בייצוא: ' + e);
+  } finally {
+    btn.textContent = '⬇ ייצא CSV';
+    btn.disabled = false;
+  }
 }
 
 // ── SEARCH ────────────────────────────────────────────────────────────────
-async function doSearch() {
+function buildSearchParams() {
   const title  = document.getElementById('search-input').value.trim();
   const cities = getSelectedCities();
   const exp    = document.getElementById('f-exp').value;
@@ -447,7 +497,6 @@ async function doSearch() {
   const source = document.getElementById('f-source').value;
   const days   = document.getElementById('f-days').value;
   const salMin = document.getElementById('f-salary').value;
-
   const params = new URLSearchParams();
   if (title)         params.set('title', title);
   if (cities.length) params.set('cities', cities.join(','));
@@ -456,7 +505,12 @@ async function doSearch() {
   if (source)        params.set('source', source);
   if (days)          params.set('days', days);
   if (salMin > 0)    params.set('salary_min', salMin);
-  params.set('limit', '300');
+  return params;
+}
+
+async function doSearch() {
+  const params = buildSearchParams();
+  params.set('limit', '2000');
 
   showListLoader();
   try {
@@ -605,7 +659,17 @@ async function checkStats() {
       msg.textContent = 'אוסף משרות לראשונה — יכול לקחת כמה דקות...';
     } else {
       el.classList.remove('show');
-      document.getElementById('job-count').textContent = data.total;
+      // Last updated badge
+      if (data.last_updated) {
+        const d = new Date(data.last_updated + 'Z'); // treat stored time as UTC
+        const ilTime = d.toLocaleString('he-IL', {
+          timeZone: 'Asia/Jerusalem',
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        });
+        const badge = document.getElementById('last-updated-badge');
+        if (badge) badge.innerHTML = `עדכון אחרון: <span>${ilTime}</span> | מתעדכן כל 6 שעות`;
+      }
     }
   } catch (_) {}
 }

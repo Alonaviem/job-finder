@@ -463,7 +463,7 @@ class DrushimScraper:
 
 class GotFriendsScraper:
     BASE_URL   = "https://www.gotfriends.co.il"
-    SEARCH_URL = "https://www.gotfriends.co.il/jobs/"
+    JOBS_URL   = "https://www.gotfriends.co.il/jobs/"
 
     def __init__(self):
         self.session = requests.Session()
@@ -473,88 +473,57 @@ class GotFriendsScraper:
         except Exception:
             pass
 
-    def scrape(self, max_pages: int = 3) -> list:
+    def scrape(self, max_pages: int = 5) -> list:
         all_jobs = []
-        queries = ["software", "product", "data", "devops", "mobile", "qa"]
-        for q in queries:
-            try:
-                jobs = self._search(q, max_pages)
-                all_jobs.extend(jobs)
-                print(f"[GotFriends] '{q}' → {len(jobs)} jobs")
-            except Exception as e:
-                print(f"[GotFriends] '{q}' error: {e}")
-        return all_jobs
-
-    def _search(self, query: str, max_pages: int) -> list:
-        jobs = []
         for page in range(1, max_pages + 1):
             try:
-                resp = self.session.get(
-                    self.SEARCH_URL,
-                    params={"q": query, "page": page, "iPage": page},
-                    timeout=20,
-                )
+                resp = self.session.get(self.JOBS_URL, params={"page": page}, timeout=20)
                 resp.raise_for_status()
-                page_jobs = self._parse(resp.text, query)
-                if not page_jobs:
+                jobs = self._parse(resp.text)
+                if not jobs:
                     break
-                jobs.extend(page_jobs)
+                all_jobs.extend(jobs)
+                print(f"[GotFriends] p{page} → {len(jobs)} jobs")
                 time.sleep(random.uniform(1.5, 2.5))
             except Exception as e:
                 print(f"[GotFriends] p{page} error: {e}")
                 break
-        return jobs
+        return all_jobs
 
-    def _parse(self, html: str, query: str) -> list:
+    def _parse(self, html: str) -> list:
         soup = BeautifulSoup(html, "lxml")
-        cards = (
-            soup.select(".job-item") or
-            soup.select(".job-box") or
-            soup.select(".jobItem") or
-            soup.select("[class*='job-card']") or
-            soup.select("[class*='jobCard']") or
-            soup.select("article.job") or
-            []
-        )
-        return [j for card in cards for j in [self._extract(card, query)] if j]
+        cards = soup.select("div.item")
+        return [j for card in cards for j in [self._extract(card)] if j]
 
-    def _extract(self, card, query: str):
+    def _extract(self, card):
         try:
-            title_el = (
-                card.select_one("h2") or card.select_one("h3") or
-                card.select_one(".job-title") or card.select_one("[class*='title']")
-            )
+            title_el = card.select_one("h2.title") or card.select_one("a.position h2")
             if not title_el:
                 return None
             title = title_el.get_text(strip=True)
             if not title or len(title) < 3:
                 return None
 
-            company_el = (
-                card.select_one(".company-name") or card.select_one("[class*='company']") or
-                card.select_one(".employer") or card.select_one("[class*='employer']")
-            )
-            company = company_el.get_text(strip=True) if company_el else "Unknown"
-
-            loc_el = (
-                card.select_one(".location") or card.select_one("[class*='location']") or
-                card.select_one(".city") or card.select_one("[class*='city']")
-            )
-            location_text = loc_el.get_text(strip=True) if loc_el else "Israel"
-
-            link_el = card.select_one("a[href]")
-            href = link_el["href"] if link_el else ""
+            link_el = card.select_one("a.position")
+            href = link_el["href"] if link_el and link_el.get("href") else ""
             url = href if href.startswith("http") else self.BASE_URL + href
 
-            full_text = card.get_text(" ", strip=True)
+            # Location: first span.info-data inside section.info.meta
+            loc_el = card.select_one("section.info span.info-data")
+            location_text = loc_el.get_text(strip=True) if loc_el else "Israel"
+            # Clean up abbreviated city names (e.g. ת"א → תל אביב)
+            if 'ת"א' in location_text or "תל אביב" in location_text or "המרכז" in location_text:
+                location_text = "תל אביב"
+
             geo = geocode_location(location_text)
+            full_text = card.get_text(" ", strip=True)
             sal_min, sal_max = parse_salary(full_text)
 
             return {
                 "id":            make_job_id("gotfriends", url),
                 "source":        "gotfriends",
                 "title":         title,
-                "company":       company,
+                "company":       "GotFriends",
                 "location_text": location_text,
                 "city":          geo["city"],
                 "lat":           geo["lat"],
@@ -568,7 +537,7 @@ class GotFriendsScraper:
                 "url":           url,
                 "posted_at":     datetime.utcnow().isoformat(),
                 "scraped_at":    datetime.utcnow().isoformat(),
-                "search_query":  query,
+                "search_query":  "tech",
             }
         except Exception as e:
             print(f"[GotFriends] extract error: {e}")
@@ -583,6 +552,11 @@ class JobMasterScraper:
     BASE_URL   = "https://www.jobmaster.co.il"
     SEARCH_URL = "https://www.jobmaster.co.il/jobs/"
 
+    TECH_QUERIES = [
+        "מפתח תוכנה", "מנהל מוצר", "data engineer", "devops",
+        "mobile developer", "QA automation", "full stack", "backend",
+    ]
+
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
@@ -591,10 +565,9 @@ class JobMasterScraper:
         except Exception:
             pass
 
-    def scrape(self, max_pages: int = 3) -> list:
+    def scrape(self, max_pages: int = 2) -> list:
         all_jobs = []
-        queries = ["software engineer", "product manager", "data engineer", "devops", "mobile developer", "qa automation"]
-        for q in queries:
+        for q in self.TECH_QUERIES:
             try:
                 jobs = self._search(q, max_pages)
                 all_jobs.extend(jobs)
@@ -609,7 +582,7 @@ class JobMasterScraper:
             try:
                 resp = self.session.get(
                     self.SEARCH_URL,
-                    params={"q": query, "page": page},
+                    params={"q": query, "currPage": page},
                     timeout=20,
                 )
                 resp.raise_for_status()
@@ -625,51 +598,37 @@ class JobMasterScraper:
 
     def _parse(self, html: str, query: str) -> list:
         soup = BeautifulSoup(html, "lxml")
-        cards = (
-            soup.select(".job-item") or
-            soup.select(".job-listing") or
-            soup.select(".jobRow") or
-            soup.select("[class*='job-row']") or
-            soup.select("[class*='jobItem']") or
-            soup.select("li.job") or
-            []
-        )
+        cards = soup.select("article.CardStyle")
         return [j for card in cards for j in [self._extract(card, query)] if j]
 
     def _extract(self, card, query: str):
         try:
-            title_el = (
-                card.select_one("h2") or card.select_one("h3") or
-                card.select_one(".job-title") or card.select_one("[class*='title']")
-            )
+            title_el = card.select_one("a.CardHeader")
             if not title_el:
                 return None
             title = title_el.get_text(strip=True)
             if not title or len(title) < 3:
                 return None
 
-            company_el = (
-                card.select_one(".company") or card.select_one("[class*='company']") or
-                card.select_one(".employer")
-            )
+            company_el = card.select_one("a.CompanyNameLink span")
             company = company_el.get_text(strip=True) if company_el else "Unknown"
 
-            loc_el = (
-                card.select_one(".location") or card.select_one("[class*='location']") or
-                card.select_one(".city") or card.select_one("[class*='city']")
-            )
+            loc_el = card.select_one("li.jobLocation span")
             location_text = loc_el.get_text(strip=True) if loc_el else "Israel"
 
-            link_el = card.select_one("a[href]")
-            href = link_el["href"] if link_el else ""
-            url = href if href.startswith("http") else self.BASE_URL + href
+            href = title_el.get("href", "")
+            url = href if href.startswith("http") else self.BASE_URL + "/jobs" + href if href.startswith("/") else self.BASE_URL + href
+
+            # Extract numeric job ID from href key param for stable deduplication
+            job_id_match = re.search(r"key=(\d+)", href)
+            job_id = job_id_match.group(1) if job_id_match else url
 
             full_text = card.get_text(" ", strip=True)
             geo = geocode_location(location_text)
             sal_min, sal_max = parse_salary(full_text)
 
             return {
-                "id":            make_job_id("jobmaster", url),
+                "id":            make_job_id("jobmaster", job_id),
                 "source":        "jobmaster",
                 "title":         title,
                 "company":       company,
