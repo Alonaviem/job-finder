@@ -463,7 +463,8 @@ class DrushimScraper:
 
 class GotFriendsScraper:
     BASE_URL   = "https://www.gotfriends.co.il"
-    JOBS_URL   = "https://www.gotfriends.co.il/jobs/"
+    # Software category has ~11k tech jobs vs the general /jobs/ listing
+    JOBS_URL   = "https://www.gotfriends.co.il/jobslobby/software/"
 
     def __init__(self):
         self.session = requests.Session()
@@ -473,7 +474,7 @@ class GotFriendsScraper:
         except Exception:
             pass
 
-    def scrape(self, max_pages: int = 5) -> list:
+    def scrape(self, max_pages: int = 30) -> list:
         all_jobs = []
         for page in range(1, max_pages + 1):
             try:
@@ -484,7 +485,7 @@ class GotFriendsScraper:
                     break
                 all_jobs.extend(jobs)
                 print(f"[GotFriends] p{page} → {len(jobs)} jobs")
-                time.sleep(random.uniform(1.5, 2.5))
+                time.sleep(random.uniform(1.0, 2.0))
             except Exception as e:
                 print(f"[GotFriends] p{page} error: {e}")
                 break
@@ -545,110 +546,101 @@ class GotFriendsScraper:
 
 
 # ─────────────────────────────────────────────
-# JobMaster Scraper  (HTML)
+# Greenhouse Scraper  (public ATS JSON API)
+# Confirmed working for these Israeli companies:
+# Taboola, NICE, SimilarWeb, Payoneer, Optimove, Riskified, Lightricks
 # ─────────────────────────────────────────────
 
-class JobMasterScraper:
-    BASE_URL   = "https://www.jobmaster.co.il"
-    SEARCH_URL = "https://www.jobmaster.co.il/jobs/"
+class GreenhouseScraper:
+    API_BASE = "https://boards-api.greenhouse.io/v1/boards"
 
-    TECH_QUERIES = [
-        "מפתח תוכנה", "מנהל מוצר", "data engineer", "devops",
-        "mobile developer", "QA automation", "full stack", "backend",
+    COMPANIES = [
+        ("taboola",    "Taboola"),
+        ("nice",       "NICE Systems"),
+        ("similarweb", "SimilarWeb"),
+        ("payoneer",   "Payoneer"),
+        ("optimove",   "Optimove"),
+        ("riskified",  "Riskified"),
+        ("lightricks", "Lightricks"),
+    ]
+
+    # Exact phrases that confirm an Israeli location
+    ISRAEL_PHRASES = [
+        "israel", "tel aviv", "תל אביב", "herzliya", "הרצליה",
+        "ra'anana", "raanana", "רעננה", "petah tikva", "פתח תקווה",
+        "haifa", "חיפה", "jerusalem", "ירושלים",
+        "beer sheva", "באר שבע", "beersheba", "rishon lezion",
+        "netanya", "נתניה", "rosh haayin", "kfar saba",
+        "ramat gan", "רמת גן", "modiin", "rehovot", "holon",
+        "remote, israel", "israel - remote", "remote - israel",
     ]
 
     def __init__(self):
         self.session = requests.Session()
-        self.session.headers.update(HEADERS)
-        try:
-            self.session.get(self.BASE_URL, timeout=10)
-        except Exception:
-            pass
+        self.session.headers.update({
+            "User-Agent": HEADERS["User-Agent"],
+            "Accept": "application/json",
+        })
 
-    def scrape(self, max_pages: int = 2) -> list:
+    def scrape(self) -> list:
         all_jobs = []
-        for q in self.TECH_QUERIES:
+        for slug, company_name in self.COMPANIES:
             try:
-                jobs = self._search(q, max_pages)
+                jobs = self._fetch_company(slug, company_name)
                 all_jobs.extend(jobs)
-                print(f"[JobMaster] '{q}' → {len(jobs)} jobs")
+                print(f"[Greenhouse] {company_name} → {len(jobs)} IL jobs")
+                time.sleep(random.uniform(0.5, 1.0))
             except Exception as e:
-                print(f"[JobMaster] '{q}' error: {e}")
+                print(f"[Greenhouse] {company_name} error: {e}")
         return all_jobs
 
-    def _search(self, query: str, max_pages: int) -> list:
-        jobs = []
-        for page in range(1, max_pages + 1):
-            try:
-                resp = self.session.get(
-                    self.SEARCH_URL,
-                    params={"q": query, "currPage": page},
-                    timeout=20,
-                )
-                resp.raise_for_status()
-                page_jobs = self._parse(resp.text, query)
-                if not page_jobs:
-                    break
-                jobs.extend(page_jobs)
-                time.sleep(random.uniform(1.5, 2.5))
-            except Exception as e:
-                print(f"[JobMaster] p{page} error: {e}")
-                break
-        return jobs
+    def _fetch_company(self, slug: str, company_name: str) -> list:
+        resp = self.session.get(f"{self.API_BASE}/{slug}/jobs", timeout=15)
+        resp.raise_for_status()
+        jobs_raw = resp.json().get("jobs", [])
+        return [j for raw in jobs_raw for j in [self._parse(raw, company_name)] if j]
 
-    def _parse(self, html: str, query: str) -> list:
-        soup = BeautifulSoup(html, "lxml")
-        cards = soup.select("article.CardStyle")
-        return [j for card in cards for j in [self._extract(card, query)] if j]
+    def _is_israel(self, location: str) -> bool:
+        loc = location.lower()
+        return any(phrase in loc for phrase in self.ISRAEL_PHRASES)
 
-    def _extract(self, card, query: str):
+    def _parse(self, job: dict, company_name: str):
         try:
-            title_el = card.select_one("a.CardHeader")
-            if not title_el:
-                return None
-            title = title_el.get_text(strip=True)
-            if not title or len(title) < 3:
+            title = (job.get("title") or "").strip()
+            if not title:
                 return None
 
-            company_el = card.select_one("a.CompanyNameLink span")
-            company = company_el.get_text(strip=True) if company_el else "Unknown"
+            location_name = (job.get("location") or {}).get("name") or "Israel"
+            if not self._is_israel(location_name):
+                return None
 
-            loc_el = card.select_one("li.jobLocation span")
-            location_text = loc_el.get_text(strip=True) if loc_el else "Israel"
-
-            href = title_el.get("href", "")
-            url = href if href.startswith("http") else self.BASE_URL + "/jobs" + href if href.startswith("/") else self.BASE_URL + href
-
-            # Extract numeric job ID from href key param for stable deduplication
-            job_id_match = re.search(r"key=(\d+)", href)
-            job_id = job_id_match.group(1) if job_id_match else url
-
-            full_text = card.get_text(" ", strip=True)
-            geo = geocode_location(location_text)
-            sal_min, sal_max = parse_salary(full_text)
+            geo = geocode_location(location_name)
+            url = job.get("absolute_url") or ""
+            job_id = str(job.get("id") or url)
+            posted_at = job.get("updated_at") or job.get("first_published") or ""
 
             return {
-                "id":            make_job_id("jobmaster", job_id),
-                "source":        "jobmaster",
+                "id":            make_job_id("greenhouse", job_id),
+                "source":        "greenhouse",
                 "title":         title,
-                "company":       company,
-                "location_text": location_text,
+                "company":       company_name,
+                "location_text": location_name,
                 "city":          geo["city"],
                 "lat":           geo["lat"],
                 "lng":           geo["lng"],
-                "work_model":    detect_work_model(full_text + " " + title),
-                "experience":    detect_experience(title + " " + full_text),
-                "category":      detect_category(title, full_text),
-                "salary_min":    sal_min,
-                "salary_max":    sal_max,
-                "description":   full_text[:500],
+                "work_model":    detect_work_model(title + " " + location_name),
+                "experience":    detect_experience(title),
+                "category":      detect_category(title),
+                "salary_min":    None,
+                "salary_max":    None,
+                "description":   "",
                 "url":           url,
-                "posted_at":     datetime.utcnow().isoformat(),
+                "posted_at":     posted_at,
                 "scraped_at":    datetime.utcnow().isoformat(),
-                "search_query":  query,
+                "search_query":  company_name,
             }
         except Exception as e:
-            print(f"[JobMaster] extract error: {e}")
+            print(f"[Greenhouse] parse error: {e}")
             return None
 
 
@@ -688,19 +680,19 @@ def run_scrape(queries: list = None) -> dict:
     except Exception as e:
         print(f"[Drushim] Error: {e}")
 
-    # GotFriends: HTML scraping
+    # GotFriends: HTML scraping (software category, ~11k tech jobs)
     try:
         gotfriends = GotFriendsScraper()
-        all_jobs.extend(gotfriends.scrape(max_pages=2))
+        all_jobs.extend(gotfriends.scrape(max_pages=30))
     except Exception as e:
         print(f"[GotFriends] Error: {e}")
 
-    # JobMaster: HTML scraping
+    # Greenhouse: public ATS API for Israeli tech companies
     try:
-        jobmaster = JobMasterScraper()
-        all_jobs.extend(jobmaster.scrape(max_pages=2))
+        greenhouse = GreenhouseScraper()
+        all_jobs.extend(greenhouse.scrape())
     except Exception as e:
-        print(f"[JobMaster] Error: {e}")
+        print(f"[Greenhouse] Error: {e}")
 
     inserted = insert_jobs(all_jobs)
     print(f"[Scraper] Done — {len(all_jobs)} scraped, {inserted} inserted/updated")
