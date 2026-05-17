@@ -180,8 +180,45 @@
     .source-dot {
       width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px;
     }
-    .dot-alljobs  { background: var(--accent); }
-    .dot-drushim  { background: var(--green); }
+    .dot-alljobs     { background: var(--accent); }
+    .dot-drushim     { background: var(--green); }
+    .dot-gotfriends  { background: var(--yellow); }
+    .dot-jobmaster   { background: #c084fc; }
+
+    /* ── MULTI-SELECT CITY ── */
+    .multiselect-wrap { position: relative; }
+    .multiselect-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 7px 12px; cursor: pointer;
+      font-size: 0.83rem; color: var(--text); white-space: nowrap;
+      transition: border-color .2s; min-width: 110px;
+    }
+    .multiselect-btn:hover { border-color: var(--accent); }
+    .multiselect-arrow { font-size: .65rem; color: var(--text-muted); }
+    .multiselect-dropdown {
+      display: none; position: absolute; top: calc(100% + 4px); right: 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 6px 0; z-index: 9999;
+      min-width: 170px; max-height: 280px; overflow-y: auto;
+      box-shadow: 0 8px 28px rgba(0,0,0,.6);
+    }
+    .multiselect-dropdown.open { display: block; }
+    .multiselect-dropdown label {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 14px; cursor: pointer; font-size: .83rem; color: var(--text);
+    }
+    .multiselect-dropdown label:hover { background: var(--surface2); }
+    .multiselect-dropdown input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+
+    /* ── EXPORT BUTTON ── */
+    .export-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 8px; padding: 7px 12px;
+      font-size: .83rem; cursor: pointer; white-space: nowrap;
+      transition: border-color .2s, color .2s;
+    }
+    .export-btn:hover { border-color: var(--green); color: var(--green); }
 
     /* ── LOADER / EMPTY ── */
     .loader-wrap, .empty-wrap {
@@ -250,20 +287,27 @@
 <div class="filters">
   <span class="filter-label">סינון:</span>
 
-  <select id="f-city" onchange="doSearch()">
-    <option value="">כל הערים</option>
-    <option value="תל אביב">תל אביב</option>
-    <option value="הרצליה">הרצליה</option>
-    <option value="ירושלים">ירושלים</option>
-    <option value="חיפה">חיפה</option>
-    <option value="רעננה">רעננה</option>
-    <option value="פתח תקווה">פתח תקווה</option>
-    <option value="באר שבע">באר שבע</option>
-    <option value="רמת גן">רמת גן</option>
-    <option value="ראשון לציון">ראשון לציון</option>
-    <option value="נתניה">נתניה</option>
-    <option value="Remote">Remote</option>
-  </select>
+  <div class="multiselect-wrap" id="city-wrap">
+    <div class="multiselect-btn" id="city-btn" onclick="toggleCityDropdown()">
+      <span id="city-label">כל הערים</span>
+      <span class="multiselect-arrow">▾</span>
+    </div>
+    <div class="multiselect-dropdown" id="city-dropdown">
+      <label><input type="checkbox" value="תל אביב"     onchange="onCityChange()"> תל אביב</label>
+      <label><input type="checkbox" value="הרצליה"      onchange="onCityChange()"> הרצליה</label>
+      <label><input type="checkbox" value="רמת גן"      onchange="onCityChange()"> רמת גן</label>
+      <label><input type="checkbox" value="פתח תקווה"   onchange="onCityChange()"> פתח תקווה</label>
+      <label><input type="checkbox" value="רעננה"       onchange="onCityChange()"> רעננה</label>
+      <label><input type="checkbox" value="כפר סבא"     onchange="onCityChange()"> כפר סבא</label>
+      <label><input type="checkbox" value="ירושלים"     onchange="onCityChange()"> ירושלים</label>
+      <label><input type="checkbox" value="חיפה"        onchange="onCityChange()"> חיפה</label>
+      <label><input type="checkbox" value="ראשון לציון" onchange="onCityChange()"> ראשון לציון</label>
+      <label><input type="checkbox" value="נתניה"       onchange="onCityChange()"> נתניה</label>
+      <label><input type="checkbox" value="באר שבע"     onchange="onCityChange()"> באר שבע</label>
+      <label><input type="checkbox" value="מודיעין"     onchange="onCityChange()"> מודיעין</label>
+      <label><input type="checkbox" value="Remote"      onchange="onCityChange()"> Remote</label>
+    </div>
+  </div>
 
   <select id="f-exp" onchange="doSearch()">
     <option value="">כל הניסיון</option>
@@ -283,6 +327,8 @@
     <option value="">כל המקורות</option>
     <option value="alljobs">AllJobs</option>
     <option value="drushim">Drushim</option>
+    <option value="gotfriends">GotFriends</option>
+    <option value="jobmaster">JobMaster</option>
   </select>
 
   <select id="f-days" onchange="doSearch()">
@@ -298,6 +344,7 @@
     <span id="salary-label" style="font-size:.78rem;color:var(--accent);min-width:55px">כל שכר</span>
   </div>
 
+  <button class="export-btn" onclick="exportCSV()">⬇ ייצא CSV</button>
   <span class="stats-badge">נמצאו <span id="job-count">–</span> משרות</span>
 </div>
 
@@ -348,10 +395,53 @@ function initMap() {
   map.addLayer(markers);
 }
 
+// ── CITY MULTI-SELECT ─────────────────────────────────────────────────────
+function toggleCityDropdown() {
+  document.getElementById('city-dropdown').classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('city-wrap').contains(e.target)) {
+    document.getElementById('city-dropdown').classList.remove('open');
+  }
+});
+function getSelectedCities() {
+  return [...document.querySelectorAll('#city-dropdown input:checked')].map(i => i.value);
+}
+function onCityChange() {
+  const selected = getSelectedCities();
+  document.getElementById('city-label').textContent =
+    selected.length === 0 ? 'כל הערים' : `${selected.length} ערים`;
+  doSearch();
+}
+
+// ── EXPORT CSV ────────────────────────────────────────────────────────────
+function exportCSV() {
+  if (!currentJobs.length) return;
+  const expMap = { junior: 'Junior', mid: 'Mid', senior: 'Senior' };
+  const headers = ['Company', 'Category', 'Title', 'Level', 'City', 'Work Model', 'Source', 'URL'];
+  const rows = currentJobs.map(j => [
+    j.company   || '',
+    j.category  || '',
+    j.title     || '',
+    expMap[j.experience] || j.experience || '',
+    j.city      || '',
+    j.work_model|| '',
+    j.source    || '',
+    j.url       || '',
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`));
+  const csv = '﻿' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `israel-jobs-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 // ── SEARCH ────────────────────────────────────────────────────────────────
 async function doSearch() {
   const title  = document.getElementById('search-input').value.trim();
-  const city   = document.getElementById('f-city').value;
+  const cities = getSelectedCities();
   const exp    = document.getElementById('f-exp').value;
   const model  = document.getElementById('f-model').value;
   const source = document.getElementById('f-source').value;
@@ -359,13 +449,13 @@ async function doSearch() {
   const salMin = document.getElementById('f-salary').value;
 
   const params = new URLSearchParams();
-  if (title)  params.set('title', title);
-  if (city)   params.set('city', city);
-  if (exp)    params.set('experience', exp);
-  if (model)  params.set('work_model', model);
-  if (source) params.set('source', source);
-  if (days)   params.set('days', days);
-  if (salMin > 0) params.set('salary_min', salMin);
+  if (title)         params.set('title', title);
+  if (cities.length) params.set('cities', cities.join(','));
+  if (exp)           params.set('experience', exp);
+  if (model)         params.set('work_model', model);
+  if (source)        params.set('source', source);
+  if (days)          params.set('days', days);
+  if (salMin > 0)    params.set('salary_min', salMin);
   params.set('limit', '300');
 
   showListLoader();

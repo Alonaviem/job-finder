@@ -47,6 +47,7 @@ app.add_middleware(
 def search_jobs(
     title:      str = Query(None),
     city:       str = Query(None),
+    cities:     str = Query(None),  # comma-separated list for multi-select
     experience: str = Query(None),
     work_model: str = Query(None),
     source:     str = Query(None),
@@ -55,8 +56,9 @@ def search_jobs(
     limit:      int = Query(200),
     offset:     int = Query(0),
 ):
+    cities_list = [c.strip() for c in cities.split(",") if c.strip()] if cities else None
     jobs = database.get_jobs(
-        title=title, city=city, experience=experience,
+        title=title, city=city, cities=cities_list, experience=experience,
         work_model=work_model, source=source, days=days,
         salary_min=salary_min, limit=limit, offset=offset,
     )

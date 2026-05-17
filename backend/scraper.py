@@ -117,6 +117,32 @@ def detect_experience(text: str) -> str:
     return "mid"
 
 
+_CATEGORY_MAP = [
+    ("gaming",        ["game ", "gaming", "unity", "unreal", "esport", "משחק"]),
+    ("fintech",       ["fintech", "banking", "payment", "insurance", "financial", "forex", "trading", "blockchain", "crypto", "wallet", "פינטק", "פיננסי"]),
+    ("adtech",        ["adtech", "ad-tech", "advertising", "rtb", "dsp", "ssp", "programmatic", "media buy"]),
+    ("cybersecurity", ["security", "cyber", "infosec", "siem", " soc ", "penetration", "pentest", "ciso", "אבטחה", "סייבר"]),
+    ("data & ai",     ["data engineer", "data scientist", "data analyst", "analytics", "business intelligence", " bi ", "machine learning", "artificial intelligence", "nlp", "deep learning", "llm", "מדעני נתונים"]),
+    ("devops",        ["devops", " sre ", "platform engineer", "infrastructure", "kubernetes", "k8s", "terraform", "cloud engineer", "דבאופס"]),
+    ("mobile",        ["mobile", "ios developer", "android developer", "react native", "flutter", "swift developer", "kotlin"]),
+    ("frontend",      ["frontend", "front-end", "react developer", "vue developer", "angular developer", "ui developer", "פרונטאנד"]),
+    ("backend",       ["backend", "back-end", "server-side", "node.js developer", "python developer", "java developer", "golang", "ruby on rails", "בקאנד"]),
+    ("product",       ["product manager", "product owner", "vp product", " cpo", "מנהל מוצר", "product lead"]),
+    ("design",        ["ux designer", "ui designer", "ui/ux", "product designer", "interaction design", "מעצב"]),
+    ("qa",            ["qa engineer", "quality assurance", "test automation", "automation tester", " qe ", "בדיקות"]),
+    ("healthcare",    ["health", "medical", "pharma", "biotech", "medtech", "clinical"]),
+    ("ecommerce",     ["ecommerce", "e-commerce", "retail tech", "marketplace"]),
+]
+
+
+def detect_category(title: str, description: str = "") -> str:
+    text = (title + " " + description).lower()
+    for category, keywords in _CATEGORY_MAP:
+        if any(kw in text for kw in keywords):
+            return category
+    return "other"
+
+
 def detect_work_model(text: str) -> str:
     tl = text.lower()
     if any(w in tl for w in ["remote", "מרחוק", "work from home", "wfh", "עבודה מהבית"]):
@@ -274,6 +300,7 @@ class AllJobsScraper:
                 "lng":           geo["lng"],
                 "work_model":    detect_work_model(card_text + " " + title),
                 "experience":    detect_experience(title + " " + card_text),
+                "category":      detect_category(title, card_text),
                 "salary_min":    sal_min,
                 "salary_max":    sal_max,
                 "description":   card_text[:500],
@@ -416,6 +443,7 @@ class DrushimScraper:
                 "lng":           lng,
                 "work_model":    detect_work_model(full_text + " " + title),
                 "experience":    experience,
+                "category":      detect_category(title, full_text),
                 "salary_min":    sal_min,
                 "salary_max":    sal_max,
                 "description":   full_text,
@@ -426,6 +454,242 @@ class DrushimScraper:
             }
         except Exception as e:
             print(f"[Drushim] parse error: {e}")
+            return None
+
+
+# ─────────────────────────────────────────────
+# GotFriends Scraper  (HTML)
+# ─────────────────────────────────────────────
+
+class GotFriendsScraper:
+    BASE_URL   = "https://www.gotfriends.co.il"
+    SEARCH_URL = "https://www.gotfriends.co.il/jobs/"
+
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update(HEADERS)
+        try:
+            self.session.get(self.BASE_URL, timeout=10)
+        except Exception:
+            pass
+
+    def scrape(self, max_pages: int = 3) -> list:
+        all_jobs = []
+        queries = ["software", "product", "data", "devops", "mobile", "qa"]
+        for q in queries:
+            try:
+                jobs = self._search(q, max_pages)
+                all_jobs.extend(jobs)
+                print(f"[GotFriends] '{q}' → {len(jobs)} jobs")
+            except Exception as e:
+                print(f"[GotFriends] '{q}' error: {e}")
+        return all_jobs
+
+    def _search(self, query: str, max_pages: int) -> list:
+        jobs = []
+        for page in range(1, max_pages + 1):
+            try:
+                resp = self.session.get(
+                    self.SEARCH_URL,
+                    params={"q": query, "page": page, "iPage": page},
+                    timeout=20,
+                )
+                resp.raise_for_status()
+                page_jobs = self._parse(resp.text, query)
+                if not page_jobs:
+                    break
+                jobs.extend(page_jobs)
+                time.sleep(random.uniform(1.5, 2.5))
+            except Exception as e:
+                print(f"[GotFriends] p{page} error: {e}")
+                break
+        return jobs
+
+    def _parse(self, html: str, query: str) -> list:
+        soup = BeautifulSoup(html, "lxml")
+        cards = (
+            soup.select(".job-item") or
+            soup.select(".job-box") or
+            soup.select(".jobItem") or
+            soup.select("[class*='job-card']") or
+            soup.select("[class*='jobCard']") or
+            soup.select("article.job") or
+            []
+        )
+        return [j for card in cards for j in [self._extract(card, query)] if j]
+
+    def _extract(self, card, query: str):
+        try:
+            title_el = (
+                card.select_one("h2") or card.select_one("h3") or
+                card.select_one(".job-title") or card.select_one("[class*='title']")
+            )
+            if not title_el:
+                return None
+            title = title_el.get_text(strip=True)
+            if not title or len(title) < 3:
+                return None
+
+            company_el = (
+                card.select_one(".company-name") or card.select_one("[class*='company']") or
+                card.select_one(".employer") or card.select_one("[class*='employer']")
+            )
+            company = company_el.get_text(strip=True) if company_el else "Unknown"
+
+            loc_el = (
+                card.select_one(".location") or card.select_one("[class*='location']") or
+                card.select_one(".city") or card.select_one("[class*='city']")
+            )
+            location_text = loc_el.get_text(strip=True) if loc_el else "Israel"
+
+            link_el = card.select_one("a[href]")
+            href = link_el["href"] if link_el else ""
+            url = href if href.startswith("http") else self.BASE_URL + href
+
+            full_text = card.get_text(" ", strip=True)
+            geo = geocode_location(location_text)
+            sal_min, sal_max = parse_salary(full_text)
+
+            return {
+                "id":            make_job_id("gotfriends", url),
+                "source":        "gotfriends",
+                "title":         title,
+                "company":       company,
+                "location_text": location_text,
+                "city":          geo["city"],
+                "lat":           geo["lat"],
+                "lng":           geo["lng"],
+                "work_model":    detect_work_model(full_text + " " + title),
+                "experience":    detect_experience(title + " " + full_text),
+                "category":      detect_category(title, full_text),
+                "salary_min":    sal_min,
+                "salary_max":    sal_max,
+                "description":   full_text[:500],
+                "url":           url,
+                "posted_at":     datetime.utcnow().isoformat(),
+                "scraped_at":    datetime.utcnow().isoformat(),
+                "search_query":  query,
+            }
+        except Exception as e:
+            print(f"[GotFriends] extract error: {e}")
+            return None
+
+
+# ─────────────────────────────────────────────
+# JobMaster Scraper  (HTML)
+# ─────────────────────────────────────────────
+
+class JobMasterScraper:
+    BASE_URL   = "https://www.jobmaster.co.il"
+    SEARCH_URL = "https://www.jobmaster.co.il/jobs/"
+
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update(HEADERS)
+        try:
+            self.session.get(self.BASE_URL, timeout=10)
+        except Exception:
+            pass
+
+    def scrape(self, max_pages: int = 3) -> list:
+        all_jobs = []
+        queries = ["software engineer", "product manager", "data engineer", "devops", "mobile developer", "qa automation"]
+        for q in queries:
+            try:
+                jobs = self._search(q, max_pages)
+                all_jobs.extend(jobs)
+                print(f"[JobMaster] '{q}' → {len(jobs)} jobs")
+            except Exception as e:
+                print(f"[JobMaster] '{q}' error: {e}")
+        return all_jobs
+
+    def _search(self, query: str, max_pages: int) -> list:
+        jobs = []
+        for page in range(1, max_pages + 1):
+            try:
+                resp = self.session.get(
+                    self.SEARCH_URL,
+                    params={"q": query, "page": page},
+                    timeout=20,
+                )
+                resp.raise_for_status()
+                page_jobs = self._parse(resp.text, query)
+                if not page_jobs:
+                    break
+                jobs.extend(page_jobs)
+                time.sleep(random.uniform(1.5, 2.5))
+            except Exception as e:
+                print(f"[JobMaster] p{page} error: {e}")
+                break
+        return jobs
+
+    def _parse(self, html: str, query: str) -> list:
+        soup = BeautifulSoup(html, "lxml")
+        cards = (
+            soup.select(".job-item") or
+            soup.select(".job-listing") or
+            soup.select(".jobRow") or
+            soup.select("[class*='job-row']") or
+            soup.select("[class*='jobItem']") or
+            soup.select("li.job") or
+            []
+        )
+        return [j for card in cards for j in [self._extract(card, query)] if j]
+
+    def _extract(self, card, query: str):
+        try:
+            title_el = (
+                card.select_one("h2") or card.select_one("h3") or
+                card.select_one(".job-title") or card.select_one("[class*='title']")
+            )
+            if not title_el:
+                return None
+            title = title_el.get_text(strip=True)
+            if not title or len(title) < 3:
+                return None
+
+            company_el = (
+                card.select_one(".company") or card.select_one("[class*='company']") or
+                card.select_one(".employer")
+            )
+            company = company_el.get_text(strip=True) if company_el else "Unknown"
+
+            loc_el = (
+                card.select_one(".location") or card.select_one("[class*='location']") or
+                card.select_one(".city") or card.select_one("[class*='city']")
+            )
+            location_text = loc_el.get_text(strip=True) if loc_el else "Israel"
+
+            link_el = card.select_one("a[href]")
+            href = link_el["href"] if link_el else ""
+            url = href if href.startswith("http") else self.BASE_URL + href
+
+            full_text = card.get_text(" ", strip=True)
+            geo = geocode_location(location_text)
+            sal_min, sal_max = parse_salary(full_text)
+
+            return {
+                "id":            make_job_id("jobmaster", url),
+                "source":        "jobmaster",
+                "title":         title,
+                "company":       company,
+                "location_text": location_text,
+                "city":          geo["city"],
+                "lat":           geo["lat"],
+                "lng":           geo["lng"],
+                "work_model":    detect_work_model(full_text + " " + title),
+                "experience":    detect_experience(title + " " + full_text),
+                "category":      detect_category(title, full_text),
+                "salary_min":    sal_min,
+                "salary_max":    sal_max,
+                "description":   full_text[:500],
+                "url":           url,
+                "posted_at":     datetime.utcnow().isoformat(),
+                "scraped_at":    datetime.utcnow().isoformat(),
+                "search_query":  query,
+            }
+        except Exception as e:
+            print(f"[JobMaster] extract error: {e}")
             return None
 
 
@@ -464,6 +728,20 @@ def run_scrape(queries: list = None) -> dict:
         all_jobs.extend(drushim.scrape(max_pages=3))
     except Exception as e:
         print(f"[Drushim] Error: {e}")
+
+    # GotFriends: HTML scraping
+    try:
+        gotfriends = GotFriendsScraper()
+        all_jobs.extend(gotfriends.scrape(max_pages=2))
+    except Exception as e:
+        print(f"[GotFriends] Error: {e}")
+
+    # JobMaster: HTML scraping
+    try:
+        jobmaster = JobMasterScraper()
+        all_jobs.extend(jobmaster.scrape(max_pages=2))
+    except Exception as e:
+        print(f"[JobMaster] Error: {e}")
 
     inserted = insert_jobs(all_jobs)
     print(f"[Scraper] Done — {len(all_jobs)} scraped, {inserted} inserted/updated")

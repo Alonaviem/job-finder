@@ -26,6 +26,7 @@ def init_db():
             lng           REAL,
             work_model    TEXT,
             experience    TEXT,
+            category      TEXT,
             salary_min    INTEGER,
             salary_max    INTEGER,
             description   TEXT,
@@ -35,6 +36,11 @@ def init_db():
             search_query  TEXT
         )
     """)
+    # Migration: add category column if table existed before
+    try:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN category TEXT")
+    except Exception:
+        pass
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_title    ON jobs(title)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_city     ON jobs(city)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_source   ON jobs(source)")
@@ -52,14 +58,15 @@ def insert_jobs(jobs: list) -> int:
             cursor.execute("""
                 INSERT OR REPLACE INTO jobs
                 (id, source, title, company, location_text, city, lat, lng,
-                 work_model, experience, salary_min, salary_max, description,
-                 url, posted_at, scraped_at, search_query)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 work_model, experience, category, salary_min, salary_max,
+                 description, url, posted_at, scraped_at, search_query)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 job.get("id"), job.get("source"), job.get("title"),
                 job.get("company"), job.get("location_text"), job.get("city"),
                 job.get("lat"), job.get("lng"), job.get("work_model"),
-                job.get("experience"), job.get("salary_min"), job.get("salary_max"),
+                job.get("experience"), job.get("category"),
+                job.get("salary_min"), job.get("salary_max"),
                 job.get("description"), job.get("url"), job.get("posted_at"),
                 now, job.get("search_query"),
             ))
@@ -74,6 +81,7 @@ def insert_jobs(jobs: list) -> int:
 def get_jobs(
     title: str = None,
     city: str = None,
+    cities: list = None,
     experience: str = None,
     work_model: str = None,
     source: str = None,
@@ -90,7 +98,14 @@ def get_jobs(
     if title:
         query += " AND LOWER(title) LIKE ?"
         params.append(f"%{title.lower()}%")
-    if city and city.lower() != "all":
+    # Multi-city takes priority; fall back to single city
+    if cities:
+        clauses = []
+        for c in cities:
+            clauses.append("(LOWER(city) LIKE ? OR LOWER(location_text) LIKE ?)")
+            params.extend([f"%{c.lower()}%", f"%{c.lower()}%"])
+        query += " AND (" + " OR ".join(clauses) + ")"
+    elif city and city.lower() != "all":
         query += " AND (LOWER(city) LIKE ? OR LOWER(location_text) LIKE ?)"
         params.extend([f"%{city.lower()}%", f"%{city.lower()}%"])
     if experience:
