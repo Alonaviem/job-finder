@@ -555,13 +555,25 @@ class GreenhouseScraper:
     API_BASE = "https://boards-api.greenhouse.io/v1/boards"
 
     COMPANIES = [
-        ("taboola",    "Taboola"),
-        ("nice",       "NICE Systems"),
-        ("similarweb", "SimilarWeb"),
-        ("payoneer",   "Payoneer"),
-        ("optimove",   "Optimove"),
-        ("riskified",  "Riskified"),
-        ("lightricks", "Lightricks"),
+        # Confirmed working boards — Israeli tech companies
+        ("taboola",     "Taboola"),
+        ("nice",        "NICE Systems"),
+        ("similarweb",  "SimilarWeb"),
+        ("payoneer",    "Payoneer"),
+        ("optimove",    "Optimove"),
+        ("riskified",   "Riskified"),
+        ("lightricks",  "Lightricks"),
+        ("appsflyer",   "AppsFlyer"),
+        ("orcasecurity","Orca Security"),
+        ("claroty",     "Claroty"),
+        ("armis",       "Armis"),
+        ("axonius",     "Axonius"),
+        ("cybereason",  "Cybereason"),
+        ("earnix",      "Earnix"),
+        ("melio",       "Melio"),
+        ("sisense",     "Sisense"),
+        ("firebolt",    "Firebolt"),
+        ("sygnia",      "Sygnia"),
     ]
 
     # Exact phrases that confirm an Israeli location
